@@ -1,0 +1,93 @@
+#include <WiFi.h>
+
+const char* SSID = "ESP32_CHAT";
+const char* PASS = "12345678";
+const char* SERVER_IP = "192.168.4.1"; 
+const uint16_t PORT = 3333;
+
+WiFiClient client;
+String lineBuf;
+
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, PASS);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(300);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected");
+  Serial.print("STA IP: "); Serial.println(WiFi.localIP());
+}
+
+void connectServer() {
+  Serial.print("Connecting to server ");
+  Serial.print(SERVER_IP);
+  Serial.print(":");
+  Serial.println(PORT);
+
+  while (!client.connect(SERVER_IP, PORT)) {
+    Serial.println("Retrying in 1s...");
+    delay(1000);
+  }
+  client.setNoDelay(true);
+  Serial.println("Connected to server!");
+  Serial.println("\nType a message and press Enter to send.\n");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  connectWiFi();
+  connectServer();
+}
+
+void handleSerialToWiFi() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      if (lineBuf.length() > 0) {
+        Serial.print("You -> WiFi: ");
+        Serial.println(lineBuf);
+
+        if (client && client.connected()) {
+          client.println(lineBuf);
+        } else {
+          Serial.println("(Disconnected. Reconnecting...)");
+          client.stop();
+          connectServer();
+          client.println(lineBuf);
+        }
+        lineBuf = "";
+      }
+    } else {
+      lineBuf += c;
+      if (lineBuf.length() > 200) lineBuf = "";
+    }
+  }
+}
+
+void handleWiFiToSerial() {
+  if (!client.connected()) {
+    Serial.println("(Lost connection. Reconnecting...)");
+    client.stop();
+    connectServer();
+    return;
+  }
+
+  while (client.available()) {
+    String msg = client.readStringUntil('\n');
+    msg.trim();
+    if (msg.length() > 0) {
+      Serial.print("WiFi -> You: ");
+      Serial.println(msg);
+    }
+  }
+}
+
+void loop() {
+  handleSerialToWiFi();
+  handleWiFiToSerial();
+}
