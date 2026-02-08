@@ -1,0 +1,120 @@
+#include <Arduino.h>
+#include "driver/spi_slave.h"
+
+static const int PIN_SCK  = 18;
+static const int PIN_MISO = 19;
+static const int PIN_MOSI = 23;
+static const int PIN_CS   = 5;
+
+static const uint8_t PAYLOAD_MAX = 32;
+static const uint8_t FRAME_SIZE  = 2 + PAYLOAD_MAX;
+
+// Outgoing message (one-slot mailbox)
+volatile bool outHasMsg = false;
+uint8_t outLen = 0;
+char outBuf[PAYLOAD_MAX + 1];
+
+// Serial line assembly buffer
+String lineBuf;
+
+void setupSPISlave() {
+  spi_bus_config_t buscfg = {};
+  buscfg.mosi_io_num = PIN_MOSI;
+  buscfg.miso_io_num = PIN_MISO;
+  buscfg.sclk_io_num = PIN_SCK;
+  buscfg.quadwp_io_num = -1;
+  buscfg.quadhd_io_num = -1;
+  buscfg.max_transfer_sz = 64;
+
+  spi_slave_interface_config_t slvcfg = {};
+  slvcfg.spics_io_num = PIN_CS;
+  slvcfg.queue_size = 1;
+  slvcfg.mode = 0; // SPI_MODE0
+  slvcfg.flags = 0;
+
+  // ✅ DMA disabled (avoids alignment/DMA-capable memory issues)
+  esp_err_t ret = spi_slave_initialize(VSPI_HOST, &buscfg, &slvcfg, SPI_DMA_DISABLED);
+  if (ret != ESP_OK) {
+    Serial.printf("spi_slave_initialize failed: %d\n", ret);
+    while (true) delay(1000);
+  }
+}
+
+void queueOutgoingLine(const String& s) {
+  outLen = (uint8_t)min((int)PAYLOAD_MAX, (int)s.length());
+  for (uint8_t i = 0; i < outLen; i++) outBuf[i] = s[i];
+  outBuf[outLen] = '\0';
+  outHasMsg = true;
+
+  Serial.print("Queued SEND -> MASTER: ");
+  Serial.println(outBuf);
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  setupSPISlave();
+
+  Serial.println("ESP32 SPI SLAVE (words, polled, 4-wire).");
+  Serial.println("Type a line and press Enter to send to MASTER.");
+}
+
+void loop() {
+  // Read serial into a line (ignore CR)
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+
+    if (c == '\n') {
+      if (lineBuf.length() > 0) {
+        queueOutgoingLine(lineBuf);
+        lineBuf = "";
+      }
+    } else {
+      if (lineBuf.length() < 200) lineBuf += c;
+    }
+  }
+
+  // Build TX frame for the next master poll
+  uint8_t tx[FRAME_SIZE] = {0};
+  uint8_t rx[FRAME_SIZE] = {0};
+
+  if (outHasMsg) {
+    tx[0] = 0x01;
+    tx[1] = outLen;
+    memcpy(&tx[2], outBuf, outLen);
+  } else {
+    tx[0] = 0x00;
+    tx[1] = 0x00;
+  }
+
+  spi_slave_transaction_t t = {};
+  t.length = FRAME_SIZE * 8;   // bits
+  t.tx_buffer = tx;
+  t.rx_buffer = rx;
+
+  // Wait for master poll (CS low + clocks)
+  esp_err_t ret = spi_slave_transmit(VSPI_HOST, &t, portMAX_DELAY);
+  if (ret != ESP_OK) return;
+
+  // If we transmitted our queued msg once, clear it
+  if (outHasMsg) {
+    outHasMsg = false;
+    Serial.print("SENT -> MASTER: ");
+    Serial.println(outBuf);
+  }
+
+  // Decode received frame from master
+  uint8_t inFlags = rx[0];
+  uint8_t inLen   = rx[1];
+
+  if ((inFlags & 0x01) && inLen > 0 && inLen <= PAYLOAD_MAX) {
+    char msg[PAYLOAD_MAX + 1];
+    memcpy(msg, &rx[2], inLen);
+    msg[inLen] = '\0';
+
+    Serial.print("RECEIVED <- MASTER: ");
+    Serial.println(msg);
+  }
+}
