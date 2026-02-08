@@ -1,0 +1,32 @@
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+void setup() {
+  Serial.begin(115200);
+  SerialBT.begin("ESP32_SLAVE_1"); 
+  Serial.println("Slave is ready. Waiting for Master...");
+}
+
+void loop() {
+  // 1. RECEIVE: Receive from Master and show in Slave Serial Monitor
+  if (SerialBT.available()) {
+    String incoming = SerialBT.readStringUntil('\n');
+    incoming.trim();
+    if (incoming.length() > 0) {
+      Serial.print("Receive - ");
+      Serial.println(incoming);
+    }
+  }
+
+  // 2. SEND: Type in Slave Serial Monitor to send to Master
+  if (Serial.available()) {
+    String msg = Serial.readStringUntil('\n');
+    msg.trim();
+    if (msg.length() > 0) {
+      SerialBT.println(msg);
+      Serial.print("Send - ");
+      Serial.println(msg);
+    }
+  }
+}
