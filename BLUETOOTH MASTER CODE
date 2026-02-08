@@ -1,0 +1,48 @@
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+
+// This is your Slave's address formatted for the code
+uint8_t slaveAddress[6] = {0x88, 0x13, 0xBF, 0x69, 0x0D, 0x66}; 
+
+void setup() {
+  Serial.begin(115200);
+  
+  // Start Bluetooth as Master
+  SerialBT.begin("ESP32_MASTER", true); 
+  Serial.println("Master started. Connecting to 88:13:BF:69:0D:66...");
+}
+
+void loop() {
+  // Check connection status
+  if (!SerialBT.connected()) {
+    if (SerialBT.connect(slaveAddress)) {
+      Serial.println("Connected!");
+    } else {
+      Serial.println("Connecting to Slave...");
+      delay(2000); 
+      return;
+    }
+  }
+
+  // 1. SEND: Type in Master Serial Monitor to send to Slave
+  if (Serial.available()) {
+    String msg = Serial.readStringUntil('\n');
+    msg.trim();
+    if (msg.length() > 0) {
+      SerialBT.println(msg);
+      Serial.print("Send - ");
+      Serial.println(msg);
+    }
+  }
+
+  // 2. RECEIVE: Receive from Slave and show in Master Serial Monitor
+  if (SerialBT.available()) {
+    String incoming = SerialBT.readStringUntil('\n');
+    incoming.trim();
+    if (incoming.length() > 0) {
+      Serial.print("Receive - ");
+      Serial.println(incoming);
+    }
+  }
+}
