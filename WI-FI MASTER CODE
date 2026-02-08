@@ -1,0 +1,82 @@
+#include <WiFi.h>
+
+const char* AP_SSID = "ESP32_CHAT";
+const char* AP_PASS = "12345678"; 
+const uint16_t PORT = 3333;
+
+WiFiServer server(PORT);
+WiFiClient client;
+
+String lineBuf;
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  WiFi.mode(WIFI_AP);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS);
+  Serial.println(ok ? "AP started" : "AP failed");
+
+  Serial.print("AP SSID: "); Serial.println(AP_SSID);
+  Serial.print("AP IP  : "); Serial.println(WiFi.softAPIP());
+
+  server.begin();
+  server.setNoDelay(true);
+
+  Serial.println("\nType a message and press Enter to send.\n");
+}
+
+void handleSerialToWiFi() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+
+    // Build a full line, send when Enter is pressed
+    if (c == '\r') continue; // ignore CR
+    if (c == '\n') {
+      if (lineBuf.length() > 0) {
+        Serial.print("You -> WiFi: ");
+        Serial.println(lineBuf);
+
+        if (client && client.connected()) {
+          client.println(lineBuf);   // send as a full line
+        } else {
+          Serial.println("(No client connected)");
+        }
+        lineBuf = "";
+      }
+    } else {
+      lineBuf += c;
+      // Optional safety limit
+      if (lineBuf.length() > 200) lineBuf = "";
+    }
+  }
+}
+
+void handleWiFiToSerial() {
+  // Accept a new client if none is connected
+  if (!client || !client.connected()) {
+    WiFiClient newClient = server.available();
+    if (newClient) {
+      client = newClient;
+      client.setNoDelay(true);
+      Serial.print("Client connected: ");
+      Serial.println(client.remoteIP());
+    }
+    return;
+  }
+
+  // Read incoming lines
+  while (client.available()) {
+    String msg = client.readStringUntil('\n');
+    msg.trim();
+    if (msg.length() > 0) {
+      Serial.print("WiFi -> You: ");
+      Serial.println(msg);
+    }
+  }
+}
+
+void loop() {
+  handleSerialToWiFi();
+  handleWiFiToSerial();
+}
