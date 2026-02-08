@@ -1,0 +1,61 @@
+#include <Wire.h>
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+#define SLAVE_ADDR 0x08
+#define MAX_LEN 32
+
+char tx[MAX_LEN];
+char rx[MAX_LEN];
+
+uint8_t lastSeq = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(SDA_PIN, SCL_PIN, 100000);
+  Serial.println("MASTER READY");
+}
+
+void loop() {
+  // ---- Send serial line to slave ----
+  if (Serial.available()) {
+    int len = Serial.readBytesUntil('\n', tx, MAX_LEN - 1);
+    tx[len] = '\0';
+
+    Wire.beginTransmission(SLAVE_ADDR);
+    Wire.write((uint8_t)len);
+    Wire.write((uint8_t*)tx, len);
+    uint8_t err = Wire.endTransmission();
+
+    if (err == 0) {
+      Serial.print("Sent to slave: ");
+      Serial.println(tx);
+    } else {
+      Serial.print("I2C send error: ");
+      Serial.println(err);
+    }
+  }
+
+  // ---- Poll slave (HEADER then PAYLOAD) ----
+  if (Wire.requestFrom(SLAVE_ADDR, (uint8_t)2) == 2) {
+    uint8_t seq = Wire.read();
+    uint8_t len = Wire.read();
+
+    if (len > 0 && len < MAX_LEN) {
+      if (Wire.requestFrom(SLAVE_ADDR, len) == len) {
+        int i = 0;
+        while (Wire.available() && i < len) rx[i++] = (char)Wire.read();
+        rx[i] = '\0';
+
+        // Print only if NEW message
+        if (seq != lastSeq) {
+          lastSeq = seq;
+          Serial.print("From slave: ");
+          Serial.println(rx);
+        }
+      }
+    }
+  }
+
+  delay(100);
+}
