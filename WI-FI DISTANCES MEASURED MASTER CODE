@@ -1,0 +1,61 @@
+#include "WiFi.h"
+#include <math.h>
+
+// --- CONFIGURATION ---
+const char* targetSSID = "ESP32_PROXIMITY_BEACON";
+const int LED_PIN = 2;              // Standard ESP32 on-board LED pin
+const float thresholdMeters = 2.0;  // Turn LED ON if closer than 2 meters
+
+// --- CALIBRATION ---
+const float MeasuredPower = -45.0;  // RSSI at 1 meter (Adjust this!)
+const float N = 2.0;                // Environment factor (2.0=Open, 3.0=Indoors)
+
+float filteredDist = 0;
+float alpha = 0.2;                  // Smoothing (0.1 = stable, 0.9 = jumpy)
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+}
+
+void loop() {
+  int n = WiFi.scanNetworks();
+  bool found = false;
+
+  for (int i = 0; i < n; ++i) {
+    if (WiFi.SSID(i) == targetSSID) {
+      long rssi = WiFi.RSSI(i);
+      
+      // Calculate Distance
+      float rawDist = pow(10, (MeasuredPower - rssi) / (10 * N));
+      
+      // Smooth the result
+      if (filteredDist == 0) filteredDist = rawDist;
+      filteredDist = (alpha * rawDist) + ((1.0 - alpha) * filteredDist);
+
+      Serial.print("Dist: "); Serial.print(filteredDist); Serial.println("m");
+
+      // LED LOGIC
+      if (filteredDist <= thresholdMeters) {
+        digitalWrite(LED_PIN, HIGH); // Turn LED ON
+        Serial.println("STATUS: IN RANGE");
+      } else {
+        digitalWrite(LED_PIN, LOW);  // Turn LED OFF
+        Serial.println("STATUS: TOO FAR");
+      }
+      
+      found = true;
+      break; 
+    }
+  }
+
+  if (!found) {
+    digitalWrite(LED_PIN, LOW); // Turn off if beacon is missing
+    Serial.println("Beacon not found.");
+  }
+
+  delay(500); // Check twice per second
+}
