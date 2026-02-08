@@ -1,0 +1,67 @@
+// Two-way UART "chat" between two ESP32s using polling.
+// Type a line in Serial Monitor, press Enter -> sent to other ESP32.
+// Anything received over UART -> printed to Serial Monitor.
+
+HardwareSerial Link(2);   // UART2
+
+static String usbBuf = "";    // buffer for USB Serial input
+static String uartBuf = "";   // buffer for UART input
+
+// ---- config pins ----
+constexpr int UART_RX = 16;
+constexpr int UART_TX = 17;
+
+// How long to wait after sending (optional, helps avoid spamming if you paste lots)
+constexpr uint32_t SEND_GUARD_MS = 50;
+static uint32_t lastSendMs = 0;
+
+void setup() {
+  Serial.begin(115200);
+  Link.begin(9600, SERIAL_8N1, UART_RX, UART_TX);
+
+  Serial.println("\n=== ESP32 UART Chat Ready ===");
+  Serial.println("Type in Serial Monitor and press Enter to send.");
+  Serial.println("Wiring: TX17<->RX16 and GND<->GND\n");
+}
+
+void loop() {
+  // 1) POLL USB SERIAL (Serial Monitor typing) -> send to UART when newline arrives
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+
+    if (c == '\r') continue;          // ignore CR (Windows sends \r\n)
+    if (c == '\n') {
+      if (usbBuf.length() > 0) {
+        // small guard delay between sends
+        uint32_t now = millis();
+        if (now - lastSendMs >= SEND_GUARD_MS) {
+          Link.println(usbBuf);       // send whole line once
+          Serial.print("You: ");
+          Serial.println(usbBuf);
+          lastSendMs = now;
+        }
+        usbBuf = "";
+      }
+    } else {
+      usbBuf += c;                    // build the line
+    }
+  }
+
+  // 2) POLL UART -> print to Serial Monitor when newline arrives
+  while (Link.available() > 0) {
+    char c = Link.read();
+
+    if (c == '\r') continue;
+    if (c == '\n') {
+      if (uartBuf.length() > 0) {
+        Serial.print("Peer: ");
+        Serial.println(uartBuf);
+        uartBuf = "";
+      }
+    } else {
+      uartBuf += c;
+      // optional safety: prevent runaway buffer if newline never comes
+      if (uartBuf.length() > 200) uartBuf = "";
+    }
+  }
+}
