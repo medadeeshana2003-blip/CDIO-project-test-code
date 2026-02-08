@@ -1,0 +1,15 @@
+#include <WiFi.h>
+
+const char* ssid = "ESP32_PROXIMITY_BEACON";
+
+void setup() {
+  Serial.begin(115200);
+  // Start Access Point mode
+  WiFi.softAP(ssid); 
+  Serial.println("Slave Beacon Active: " + String(ssid));
+}
+
+void loop() {
+  // Nothing to do here but stay powered on
+  delay(1000);
+}
