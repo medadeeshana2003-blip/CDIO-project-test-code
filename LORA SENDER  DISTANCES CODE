@@ -1,0 +1,28 @@
+#include <SPI.h>
+#include <LoRa.h>
+
+#define NSS 5
+#define RST 14
+#define DIO0 26
+
+void setup() {
+  Serial.begin(115200);
+
+  LoRa.setPins(NSS, RST, DIO0);
+
+  if (!LoRa.begin(433E6)) {   // use 868E6 or 915E6 if needed
+    Serial.println("LoRa init failed");
+    while (1);
+  }
+
+  Serial.println("LoRa Transmitter Ready");
+}
+
+void loop() {
+  LoRa.beginPacket();
+  LoRa.print("HELLO");
+  LoRa.endPacket();
+
+  Serial.println("Packet sent");
+  delay(1000);
+}
